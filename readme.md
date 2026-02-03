@@ -1,87 +1,92 @@
 # SupportOps AI Backend
 
-Production-style **Python backend** that demonstrates real-world backend engineering patterns + AI integration:
+Production-style FastAPI backend for multi-tenant ticketing with AI triage and background jobs.
 
-- Multi-tenant organizations
-- RBAC (Admin / Agent / Customer)
-- Tickets + comments workflow
-- Background jobs with Redis Queue (RQ)
-- AI ticket triage (category, urgency score, suggested reply) with **strict JSON validation**
-- Audit logs + basic admin metrics
-- Clean project structure, tests, and local dev with Docker
+**Features**
 
-> Built as an interview-ready project to showcase backend + AI compatibility (not “toy demo” code).
+- Multi-tenant orgs with RBAC (admin, agent, customer)
+- Tickets + comments
+- Redis Queue worker for AI triage
+- AI triage with strict JSON validation
+- Audit logs and admin metrics
+- JWT access + refresh tokens with rotation
+- Docker Compose for Postgres and Redis
+- Tests and ruff linting
 
----
+**Architecture**
 
-## Demo Goals
+- `app/api` for request handlers and dependencies
+- `app/services` for business logic
+- `app/models` for SQLAlchemy models
+- `app/jobs` for RQ workers
+- `app/core` for config, logging, and security
 
-This project is designed to prove:
+**Quickstart**
 
-- I can build **secure, scalable APIs** (validation, auth, RBAC, pagination)
-- I understand **reliability** (queues, retries, idempotency, timeouts)
-- I can integrate **LLM-based features safely** (structured output, validation, audit logging)
-- I can structure Python projects cleanly and test them
+1. Copy `.env.example` to `.env` and adjust values.
+2. Start dependencies: `docker compose up -d`
+3. Create and activate venv: `python -m venv .venv`, then `.\.venv\Scripts\Activate.ps1`
+4. Install dependencies: `python -m pip install -e .`
+5. Run migrations: `alembic upgrade head`
+6. Start API: `uvicorn app.main:app --reload`
+7. Start worker in another shell: `.\.venv\Scripts\rq.exe worker -u redis://localhost:6379/0`
 
----
+**Auth Header**
 
-## Features
+- Use `Authorization: Bearer <access_token>` on all protected endpoints.
 
-### Core
+**API Overview**
 
-- **Multi-tenant** organizations (org-scoped endpoints)
-- **RBAC**: Admin / Agent / Customer
-- Ticket lifecycle: `new → open → pending → resolved`
-- Ticket priority: `low / med / high / urgent`
-- Ticket comments
+- `POST /api/v1/auth/register`
+- `POST /api/v1/auth/login`
+- `POST /api/v1/auth/refresh`
+- `GET /api/v1/me`
+- `POST /api/v1/orgs/{org_id}/tickets`
+- `GET /api/v1/orgs/{org_id}/tickets?status=&priority=&cursor=&limit=`
+- `PATCH /api/v1/orgs/{org_id}/tickets/{ticket_id}`
+- `POST /api/v1/orgs/{org_id}/tickets/{ticket_id}/comments`
+- `POST /api/v1/orgs/{org_id}/tickets/{ticket_id}/ai/triage`
+- `GET /api/v1/orgs/{org_id}/tickets/{ticket_id}/ai/triage`
+- `GET /api/v1/orgs/{org_id}/metrics`
 
-### AI
+**Environment Variables**
 
-- AI ticket triage runs asynchronously:
-  - `category`: billing | bug | feature | other
-  - `urgency_score`: 1–10
-  - `suggested_reply`: short customer-facing response
-- Output is **validated** with Pydantic before saving
-- Supports:
-  - **Real provider** (if `OPENAI_API_KEY` is set)
-  - **Deterministic stub** provider (if no API key — works offline)
+- `DATABASE_URL` PostgreSQL connection string
+- `REDIS_URL` Redis connection string
+- `JWT_SECRET` secret used to sign tokens
+- `ACCESS_TOKEN_EXPIRE_MINUTES` access token TTL
+- `REFRESH_TOKEN_EXPIRE_DAYS` refresh token TTL
+- `OPENAI_API_KEY` optional; if unset, a deterministic stub is used
+- `OPENAI_MODEL` model name for OpenAI calls
+- `AI_TIMEOUT_SECONDS` model call timeout
+- `RQ_JOB_TIMEOUT` job timeout in seconds
+- `RQ_ASYNC` set false to run jobs inline (useful for tests)
 
-### Reliability & Ops
+**Background Jobs**
 
-- Background jobs via **Redis + RQ**
-- Retries with exponential backoff (3 attempts)
-- Idempotent triage: if triage exists and is **< 24h old**, it won’t duplicate
-- Audit log for sensitive changes and AI actions
-- Admin metrics endpoint (ticket counts by status/category)
+- Triage jobs are enqueued to RQ with 3 retries and exponential backoff.
+- If an AI insight exists and is less than 24 hours old, the job skips to avoid duplicates.
+- Outputs are validated with Pydantic before saving to the database.
 
----
+**Security Notes**
 
-## Tech Stack
+- Passwords are stored as bcrypt hashes.
+- Refresh tokens are rotated and only their hashes are stored.
+- RBAC is enforced server-side for every org-scoped endpoint.
 
-- **API:** FastAPI (Python 3.11+)
-- **DB:** PostgreSQL + SQLAlchemy 2.x + Alembic migrations
-- **Queue:** Redis + RQ workers
-- **Validation:** Pydantic v2
-- **Testing:** pytest
-- **Quality:** ruff (lint/format)
-- **HTTP Client:** httpx
-- **Config:** python-dotenv
-- **Local Dev:** Docker Compose
+**Tests**
 
----
+- `pytest`
 
-## Architecture Overview
+**Key Tradeoffs**
 
-**Request flow (high level):**
+- Register endpoint also creates the initial org and admin membership.
+- Pagination uses a simple cursor based on ticket id ordering.
+- Customer users can create tickets and comment but cannot update tickets or view metrics.
 
-Client → FastAPI → Postgres  
- ↘ enqueue triage job → Redis (RQ) → Worker → AI Provider → Postgres
+**Next Improvements**
 
-**Key design ideas:**
-
-- Keep request handlers fast; push long work to the worker.
-- Validate at boundaries (Pydantic request/response + AI JSON schema validation).
-- Enforce RBAC _server-side_ on every org-scoped endpoint.
-- Make background jobs safe and retryable (idempotency + timeouts + backoff).
-
----
+- Add org management endpoints and user invitations.
+- Add rate limiting and IP-based abuse protection.
+- Replace stub AI with structured response formats when available.
+- Add OpenTelemetry traces and richer metrics.

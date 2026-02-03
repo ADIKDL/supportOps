@@ -1,0 +1,27 @@
+from __future__ import annotations
+
+from typing import Any
+
+from sqlalchemy.orm import Session
+
+from app.models.audit_log import AuditLog
+
+
+def log(
+    db: Session,
+    org_id: int,
+    actor_id: int,
+    action: str,
+    entity_type: str,
+    entity_id: int,
+    metadata: Any | None = None,
+) -> None:
+    record = AuditLog(
+        org_id=org_id,
+        actor_id=actor_id,
+        action=action,
+        entity_type=entity_type,
+        entity_id=entity_id,
+        metadata_=metadata,
+    )
+    db.add(record)
